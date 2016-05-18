@@ -1,4 +1,4 @@
-// Package aws host discovery
+// Package awsdiscovery host discovery
 package awsdiscovery
 
 import (
