@@ -3,32 +3,56 @@ package main
 import (
 	"fmt"
 	"os"
+	"sync"
 
-	"github.com/cocooma/consul-cleaner/awsdiscovery"
+	"consul-cleaner/awsdiscovery"
 
 	flag "github.com/docker/docker/pkg/mflag"
 	"github.com/hashicorp/consul/api"
 )
 
 var (
-	str, url, port, srvState                                                                          string
-	showMember, showMmemberStatus, showChecks, showSrv, deregisterSrv, listSrvInState, showNodeStatus bool
-	nsc                                                                                               int
+	str, url, port, srvState, awsregion, tag, tagvalue, hostdiscovery                                                         string
+	showTargetHosts, showMmemberStatus, showChecks, showAllSrv, deregisterSrv, listSrvInState, showNodeStatus, forceLeaveNode bool
+	nsc                                                                                                                       int
+	hosts                                                                                                                     []string
+	wg                                                                                                                        sync.WaitGroup
 )
 
-// var wg sync.WaitGroup
+func connection(uurl, pport string) *api.Client {
+	connection, err := api.NewClient(&api.Config{Address: uurl + ":" + pport})
+	if err != nil {
+		panic(err)
+	}
+	return connection
+}
 
-func listmembers(consulClient *api.Client) {
+func consulmembers(consulClient *api.Client) []string {
+	var ips []string
 	members, _ := consulClient.Agent().Members(false)
 	for _, server := range members {
-		fmt.Println(server.Name)
+		ips = append(ips, server.Name)
+	}
+	return ips
+}
+
+func awshosts(awsregion, tag, tagvalue string) []string {
+	session := awsdiscovery.AwsSessIon(awsregion)
+	filter := awsdiscovery.AwsFilter(tag, tagvalue)
+	ips := awsdiscovery.AwsInstancePrivateIP(session, filter)
+	return ips
+}
+
+func showtargethost(ips []string) {
+	for _, server := range ips {
+		fmt.Println(server)
 	}
 }
 
-func shownodestaus(consulClient *api.Client) {
+func showNodeStaus(consulClient *api.Client) {
 	members, _ := consulClient.Agent().Members(false)
 	for _, server := range members {
-		fmt.Printf("%s %v ", server.Name, server.Status)
+		fmt.Printf("%s %v \n", server.Name, server.Status)
 	}
 }
 
@@ -43,12 +67,6 @@ func forceLeaveBadNode(consulClient *api.Client, nodeStatusCode int) {
 		}
 	}
 }
-
-// func showmembers(members []*api.AgentMember) {
-// 	for _, server := range members {
-// 		fmt.Println(server.Status)
-// 	}
-// }
 
 func listChecks(consulClient *api.Client) {
 	checks, _ := consulClient.Agent().Checks()
@@ -73,14 +91,6 @@ func serviceNameServiceID(connection *api.Client, serviceCheckStatus string) map
 	return services
 }
 
-func connection(uurl, pport string) *api.Client {
-	connection, err := api.NewClient(&api.Config{Address: uurl + ":" + pport})
-	if err != nil {
-		panic(err)
-	}
-	return connection
-}
-
 func listServicesInState(consulConnection *api.Client, serviceCheckStatus string) {
 	service := serviceNameServiceID(consulConnection, serviceCheckStatus)
 	for serviceName, serviceID := range service {
@@ -102,14 +112,19 @@ func deregisterService(consulConnection *api.Client, serviceCheckStatus string) 
 func main() {
 	flag.StringVar(&url, []string{"u", "-url"}, "localhost", "Consul members endpoint. Default: localhost")
 	flag.StringVar(&port, []string{"p", "-port"}, "8500", "Consul members endpoint port. Default: 8500")
-	flag.IntVar(&nsc, []string{"nsc", "-nodestatuscode"}, 4, "Node status code. Default: 4")
-	flag.BoolVar(&showMember, []string{"sm", "-showMembers"}, false, "Show a list of members")
+	flag.IntVar(&nsc, []string{"nsc", "-nodeStatusCode"}, 4, "Node status code. Default: 4")
+	flag.BoolVar(&showTargetHosts, []string{"sth", "-showTargetHosts"}, false, "Show target hosts")
 	flag.BoolVar(&showNodeStatus, []string{"sns", "-showNodeStatus"}, false, "Show node status")
 	flag.BoolVar(&showChecks, []string{"schk", "-showChecks"}, false, "Show a list of checks")
-	flag.BoolVar(&showSrv, []string{"sasrv", "-showAllServices"}, false, "Show a list of services")
+	flag.BoolVar(&showAllSrv, []string{"sasrv", "-showAllServices"}, false, "Show a list of services")
 	flag.StringVar(&srvState, []string{"ss", "-serviceState"}, "critical", "Deregister Service State. Default: critical")
-	flag.BoolVar(&deregisterSrv, []string{"dsrv", "-deregisterService"}, false, "Deregister service")
+	flag.BoolVar(&deregisterSrv, []string{"drsrv", "-deregisterService"}, false, "Deregister service")
 	flag.BoolVar(&listSrvInState, []string{"lsrvis", "-listServiceInState"}, false, "Show a list of services")
+	flag.StringVar(&awsregion, []string{"ar", "-awsRegion"}, "eu-west-1", "AWS Region. Default: eu-west-1")
+	flag.StringVar(&tag, []string{"t", "-tag"}, "", "AWS tag")
+	flag.StringVar(&tagvalue, []string{"tv", "-tagValue"}, "", "AWS tag value")
+	flag.StringVar(&hostdiscovery, []string{"hd", "-hostDiscovery"}, "aws", "Host discovery. 'consul' or 'aws'")
+	flag.BoolVar(&forceLeaveNode, []string{"fl", "-forceLeaveNode"}, false, "Force leave consul node")
 	flag.Parse()
 
 	// var status = flag.String("status", "", "Consul Member Status for eviction")
@@ -118,43 +133,86 @@ func main() {
 
 	consulClient := connection(url, port)
 
-	// fmt.Printf("%T", consulClient)
+	switch hostdiscovery {
+	case "consul":
+		hosts = consulmembers(consulClient)
+	case "aws":
+		hosts = awshosts(awsregion, tag, tagvalue)
+	}
+
+	if showTargetHosts == true {
+		showtargethost(hosts)
+		os.Exit(0)
+	}
 
 	if deregisterSrv == true {
-		deregisterService(consulClient, srvState)
-		os.Exit(0)
+		wg.Add(len(hosts))
+		for _, ip := range hosts {
+			go func(ip, srvState string) {
+				deregisterService(connection(ip, "8500"), srvState)
+				wg.Done()
+			}(ip, srvState)
+		}
 	}
 
 	if listSrvInState == true {
-		listServicesInState(consulClient, srvState)
-		os.Exit(0)
+		wg.Add(len(hosts))
+		for _, ip := range hosts {
+			go func(ip, srvState string) {
+				listServicesInState(connection(ip, "8500"), srvState)
+				wg.Done()
+			}(ip, srvState)
+		}
 	}
 
 	if showNodeStatus == true {
-		shownodestaus(consulClient)
-		os.Exit(0)
-	}
-
-	if showMember == true {
-		listmembers(consulClient)
-		os.Exit(0)
+		wg.Add(len(hosts))
+		for _, ip := range hosts {
+			go func(ip string) {
+				showNodeStaus(connection(ip, "8500"))
+				wg.Done()
+			}(ip)
+		}
 	}
 
 	if showChecks == true {
-		listChecks(consulClient)
-		os.Exit(0)
+		wg.Add(len(hosts))
+		for _, ip := range hosts {
+			go func(ip string) {
+				listChecks(connection(ip, "8500"))
+				wg.Done()
+			}(ip)
+		}
 	}
 
-	if showSrv == true {
-		listServices(consulClient)
-		os.Exit(0)
+	if showAllSrv == true {
+		wg.Add(len(hosts))
+		for _, ip := range hosts {
+			go func(ip string) {
+				listServices(connection(ip, "8500"))
+				wg.Done()
+			}(ip)
+		}
 	}
 
-	session := awsdiscovery.AwsSessIon("eu-west-1")
-	filter := awsdiscovery.AwsFilter("Location", "qa")
-	ips := awsdiscovery.AwsInstancePrivateIP(session, filter)
-
-	for _, ip := range ips {
-		fmt.Println(ip)
+	if showAllSrv == true {
+		wg.Add(len(hosts))
+		for _, ip := range hosts {
+			go func(ip string) {
+				listServices(connection(ip, "8500"))
+				wg.Done()
+			}(ip)
+		}
 	}
+
+	if forceLeaveNode == true {
+		wg.Add(len(hosts))
+		for _, ip := range hosts {
+			go func(ip string) {
+				forceLeaveBadNode(connection(ip, "8500"), nsc)
+				wg.Done()
+			}(ip)
+		}
+	}
+	wg.Wait()
 }
