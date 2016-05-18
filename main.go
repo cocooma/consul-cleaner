@@ -4,39 +4,61 @@ import (
 	"fmt"
 	"os"
 
+	_ "consul-cleaner/awsdiscovery"
+
 	flag "github.com/docker/docker/pkg/mflag"
 	"github.com/hashicorp/consul/api"
 )
 
 var (
-	str, url, port, srvState                                       string
-	showMember, showChecks, showSrv, deregisterSrv, listSrvInState bool
+	str, url, port, srvState                                                                          string
+	showMember, showMmemberStatus, showChecks, showSrv, deregisterSrv, listSrvInState, showNodeStatus bool
+	nsc                                                                                               int
 )
 
 // var wg sync.WaitGroup
 
-func listmembers(consul_client *api.Client) {
-	members, _ := consul_client.Agent().Members(false)
+func listmembers(consulClient *api.Client) {
+	members, _ := consulClient.Agent().Members(false)
 	for _, server := range members {
 		fmt.Println(server.Name)
 	}
 }
 
-func showmembers(members []*api.AgentMember) {
+func shownodestaus(consulClient *api.Client) {
+	members, _ := consulClient.Agent().Members(false)
 	for _, server := range members {
-		fmt.Println(server.Status)
+		fmt.Printf("%s %v ", server.Name, server.Status)
 	}
 }
 
-func listChecks(consul_client *api.Client) {
-	checks, _ := consul_client.Agent().Checks()
+func forceLeaveBadNode(consulClient *api.Client, nodeStatusCode int) {
+	members, _ := consulClient.Agent().Members(false)
+	for _, server := range members {
+		if server.Status == nodeStatusCode {
+			err := consulClient.Agent().ForceLeave(server.Name)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
+}
+
+// func showmembers(members []*api.AgentMember) {
+// 	for _, server := range members {
+// 		fmt.Println(server.Status)
+// 	}
+// }
+
+func listChecks(consulClient *api.Client) {
+	checks, _ := consulClient.Agent().Checks()
 	for _, check := range checks {
 		fmt.Println(check.Node, check.Name, check.Status)
 	}
 }
 
-func listServices(consul_client *api.Client) {
-	services, _ := consul_client.Agent().Services()
+func listServices(consulClient *api.Client) {
+	services, _ := consulClient.Agent().Services()
 	for _, service := range services {
 		fmt.Println(service.ID, service.Service, service.Tags)
 	}
@@ -59,18 +81,18 @@ func connection(uurl, pport string) *api.Client {
 	return connection
 }
 
-func listServicesInState(consul_connection *api.Client, serviceCheckStatus string) {
-	service := serviceNameServiceID(consul_connection, serviceCheckStatus)
+func listServicesInState(consulConnection *api.Client, serviceCheckStatus string) {
+	service := serviceNameServiceID(consulConnection, serviceCheckStatus)
 	for serviceName, serviceID := range service {
 		fmt.Println(serviceName + " " + serviceID)
 	}
 }
 
-func deregisterService(consul_connection *api.Client, serviceCheckStatus string) {
-	service := serviceNameServiceID(consul_connection, serviceCheckStatus)
+func deregisterService(consulConnection *api.Client, serviceCheckStatus string) {
+	service := serviceNameServiceID(consulConnection, serviceCheckStatus)
 	for serviceName, serviceID := range service {
 		fmt.Println(serviceName + " " + serviceID + " has been deregistered!!!")
-		err := consul_connection.Agent().ServiceDeregister(serviceID)
+		err := consulConnection.Agent().ServiceDeregister(serviceID)
 		if err != nil {
 			panic(err)
 		}
@@ -80,7 +102,9 @@ func deregisterService(consul_connection *api.Client, serviceCheckStatus string)
 func main() {
 	flag.StringVar(&url, []string{"u", "-url"}, "localhost", "Consul members endpoint. Default: localhost")
 	flag.StringVar(&port, []string{"p", "-port"}, "8500", "Consul members endpoint port. Default: 8500")
+	flag.IntVar(&nsc, []string{"nsc", "-nodestatuscode"}, 4, "Node status code. Default: 4")
 	flag.BoolVar(&showMember, []string{"sm", "-showMembers"}, false, "Show a list of members")
+	flag.BoolVar(&showNodeStatus, []string{"sns", "-showNodeStatus"}, false, "Show node status")
 	flag.BoolVar(&showChecks, []string{"schk", "-showChecks"}, false, "Show a list of checks")
 	flag.BoolVar(&showSrv, []string{"sasrv", "-showAllServices"}, false, "Show a list of services")
 	flag.StringVar(&srvState, []string{"ss", "-serviceState"}, "critical", "Deregister Service State. Default: critical")
@@ -92,33 +116,45 @@ func main() {
 	// var Debug = flag.String("debug", "", "Debug information output")
 	// varDryrun = flag.String("cmd", "", "Do not remove the nodes, just preten")
 
-	consul_client := connection(url, port)
+	consulClient := connection(url, port)
 
-	// fmt.Printf("%T", consul_client)
+	// fmt.Printf("%T", consulClient)
 
 	if deregisterSrv == true {
-		deregisterService(consul_client, srvState)
+		deregisterService(consulClient, srvState)
 		os.Exit(0)
 	}
 
 	if listSrvInState == true {
-		listServicesInState(consul_client, srvState)
+		listServicesInState(consulClient, srvState)
+		os.Exit(0)
+	}
+
+	if showNodeStatus == true {
+		shownodestaus(consulClient)
 		os.Exit(0)
 	}
 
 	if showMember == true {
-		listmembers(consul_client)
+		listmembers(consulClient)
 		os.Exit(0)
 	}
 
 	if showChecks == true {
-		listChecks(consul_client)
+		listChecks(consulClient)
 		os.Exit(0)
 	}
 
 	if showSrv == true {
-		listServices(consul_client)
+		listServices(consulClient)
 		os.Exit(0)
 	}
 
+	session := awsdiscovery.AwsSessIon("eu-west-1")
+	filter := awsdiscovery.AwsFilter("Location", "qa")
+	ips := awsdiscovery.AwsInstancePrivateIp(session, filter)
+
+	for _, ip := range ips {
+		fmt.Println(ip)
+	}
 }
