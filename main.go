@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	_ "consul-cleaner/awsdiscovery"
+	"github.com/cocooma/consul-cleaner/awsdiscovery"
 
 	flag "github.com/docker/docker/pkg/mflag"
 	"github.com/hashicorp/consul/api"
@@ -152,7 +152,7 @@ func main() {
 
 	session := awsdiscovery.AwsSessIon("eu-west-1")
 	filter := awsdiscovery.AwsFilter("Location", "qa")
-	ips := awsdiscovery.AwsInstancePrivateIp(session, filter)
+	ips := awsdiscovery.AwsInstancePrivateIP(session, filter)
 
 	for _, ip := range ips {
 		fmt.Println(ip)

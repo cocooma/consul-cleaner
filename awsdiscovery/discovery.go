@@ -1,3 +1,4 @@
+// Package aws host discovery
 package awsdiscovery
 
 import (
@@ -6,7 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 )
 
-// Filter Output //
+// AwsFilter for limiting the subset of the return host
 func AwsFilter(tagKey, tagValue string) *ec2.DescribeInstancesInput {
 	filter1 := &ec2.Filter{
 		Name: aws.String("instance-state-name"),
@@ -27,12 +28,14 @@ func AwsFilter(tagKey, tagValue string) *ec2.DescribeInstancesInput {
 	return filter
 }
 
+// AwsSessIon creates the connection
 func AwsSessIon(region string) *ec2.EC2 {
 	session := ec2.New(session.New(), &aws.Config{Region: aws.String(region)})
 	return session
 }
 
-func AwsInstancePrivateIp(session *ec2.EC2, awsFilter *ec2.DescribeInstancesInput) []string {
+// AwsInstancePrivateIP Returns an array of Private IPs
+func AwsInstancePrivateIP(session *ec2.EC2, awsFilter *ec2.DescribeInstancesInput) []string {
 	var ips []string
 	resp, err := session.DescribeInstances(awsFilter)
 	if err != nil {
@@ -45,13 +48,3 @@ func AwsInstancePrivateIp(session *ec2.EC2, awsFilter *ec2.DescribeInstancesInpu
 	}
 	return ips
 }
-
-// func main() {
-// 	session := awsSessIon("eu-west-1")
-// 	filter := awsFilter("Location", "qa")
-// 	ips := awsInstancePrivateIp(session, filter)
-//
-// 	for _, ip := range ips {
-// 		fmt.Println(ip)
-// 	}
-// }
