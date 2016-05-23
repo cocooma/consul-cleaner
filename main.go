@@ -13,11 +13,11 @@ import (
 )
 
 var (
-	str, url, port, srvState, awsregion, tag, tagvalue, hostdiscovery, line                                                           string
-	listTargetHosts, showMmemberStatus, listChecks, listAllSrv, deregisterSrv, listSrvInState, listNodeStatus, forceLeaveNode, dryRun bool
-	nsc                                                                                                                               int
-	hosts                                                                                                                             []string
-	wg                                                                                                                                sync.WaitGroup
+	str, url, port, srvState, awsregion, tag, tagvalue, hostdiscovery, line                                                                      string
+	listTargetHosts, showMmemberStatus, listChecks, listAllSrv, deregisterSrv, listSrvInState, listNodeStatus, forceLeaveNode, dryRun, validnode bool
+	nsc                                                                                                                                          int
+	hosts                                                                                                                                        []string
+	wg                                                                                                                                           sync.WaitGroup
 )
 
 func connection(uurl, pport string) *api.Client {
@@ -103,50 +103,53 @@ func serviceNameServiceID(connection *api.Client, serviceCheckStatus string) map
 func deregisterService(consulConnection *api.Client, serviceCheckStatus string) {
 	defer func() {
 		if e := recover(); e != nil {
-			fmt.Println("Whoops some error happend:", e)
+			fmt.Println("Whoops some error happened:", e)
 		}
 	}()
 	service := serviceNameServiceID(consulConnection, serviceCheckStatus)
 	if len(service) == 0 {
-		fmt.Println("There is no service in the given state: -" + serviceCheckStatus + "- available to deregister!!!")
+		fmt.Println("There is no service in the given state: - " + serviceCheckStatus + " - available to deregister!")
 	} else {
 		for serviceName, serviceID := range service {
 			switch dryRun {
 			case false:
-				fmt.Println("SrvName: " + serviceName + "  SrvID: " + serviceID + " SrvStatus: " + serviceCheckStatus + " --- Has been deregistered!!!")
+				fmt.Println("SrvName: " + serviceName + "  SrvID: " + serviceID + "  SrvStatus: " + serviceCheckStatus + "  Has been deregistered!")
 				err := consulConnection.Agent().ServiceDeregister(serviceID)
 				if err != nil {
 					panic(err)
 				}
 			case true:
-				fmt.Println("Dryrun --- SrvName: " + serviceName + "  SrvID: " + serviceID + " SrvStatus: " + serviceCheckStatus + " --- Has been deregistered!!!")
+				fmt.Println("Dryrun!!!   SrvName: " + serviceName + "  SrvID: " + serviceID + "  SrvStatus: " + serviceCheckStatus + "  Has been deregistered!")
 			}
 		}
 	}
 }
 
-func forceLeaveBadNode(consulClient *api.Client, nodeStatusCode int) {
+func forceLeaveBadNode(consulClient *api.Client, nodeStatusCode int, member string) {
 	defer func() {
 		if e := recover(); e != nil {
-			fmt.Println("Whoops some error happend:", e)
+			fmt.Println("Whoops some error happened:", e)
 		}
 	}()
+	validnode = false
 	members, _ := consulClient.Agent().Members(false)
 	for _, server := range members {
 		if server.Status == nodeStatusCode {
+			validnode = true
 			switch dryRun {
 			case false:
-				fmt.Println(server.Name + " --- Node force left the cluster!!!")
+				fmt.Printf("On member: %s  node: %s  -  force left the cluster!\n", member, server.Name)
 				err := consulClient.Agent().ForceLeave(server.Name)
 				if err != nil {
 					panic(err)
 				}
 			case true:
-				fmt.Println("Dryrun --- " + server.Name + " --- Node force left the cluster!!!")
+				fmt.Printf("Dryrun!!!   On member: %s  node: %s  -  force left the cluster!\n", member, server.Name)
 			}
-		} else {
-			fmt.Println("there is no Node with status code: ", nodeStatusCode)
 		}
+	}
+	if !validnode {
+		fmt.Printf("On member: %s there is no Node with status code: %v\n", member, nodeStatusCode)
 	}
 }
 
@@ -239,7 +242,7 @@ func main() {
 		wg.Add(len(hosts))
 		for _, ip := range hosts {
 			go func(ip string) {
-				forceLeaveBadNode(connection(ip, "8500"), nsc)
+				forceLeaveBadNode(connection(ip, "8500"), nsc, ip)
 				wg.Done()
 			}(ip)
 		}
