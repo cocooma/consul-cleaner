@@ -2,12 +2,12 @@ package main
 
 import (
 	"bufio"
-	"consul-cleaner/awsdiscovery"
 	"fmt"
 	"os"
 	"strings"
 	"sync"
 
+  "github.com/cocooma/awsdiscovery"
 	flag "github.com/docker/docker/pkg/mflag"
 	"github.com/hashicorp/consul/api"
 )
