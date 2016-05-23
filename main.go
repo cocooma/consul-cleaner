@@ -63,7 +63,7 @@ func listTargetHost(ips []string) {
 	}
 }
 
-func listNodeStaus(consulClient *api.Client) {
+func listNodeStat(consulClient *api.Client) {
 	members, _ := consulClient.Agent().Members(false)
 	for _, server := range members {
 		fmt.Printf("%s %v \n", server.Name, server.Status)
@@ -151,21 +151,21 @@ func forceLeaveBadNode(consulClient *api.Client, nodeStatusCode int) {
 }
 
 func main() {
-	flag.StringVar(&hostdiscovery, []string{"hd", "-hostDiscovery"}, "aws", "Host discovery. 'consul' or 'aws' or 'stdin'")
+	flag.StringVar(&hostdiscovery, []string{"hd", "-host-discovery"}, "aws", "Host discovery. 'consul' or 'aws' or 'stdin'")
 	flag.StringVar(&url, []string{"u", "-url"}, "localhost", "Consul member endpoint. Default: localhost")
 	flag.StringVar(&port, []string{"p", "-port"}, "8500", "Consul members endpoint port. Default: 8500")
-	flag.StringVar(&awsregion, []string{"ar", "-awsRegion"}, "eu-west-1", "AWS Region. Default: eu-west-1")
+	flag.StringVar(&awsregion, []string{"ar", "-aws-region"}, "eu-west-1", "AWS Region. Default: eu-west-1")
 	flag.StringVar(&tag, []string{"t", "-tag"}, "", "AWS tag")
-	flag.StringVar(&tagvalue, []string{"tv", "-tagValue"}, "", "AWS tag value")
-	flag.IntVar(&nsc, []string{"nsc", "-nodeStatusCode"}, 4, "Consul node status code. Default: 4")
-	flag.BoolVar(&listTargetHosts, []string{"lth", "-listTargetHosts"}, false, "List target hosts")
-	flag.BoolVar(&listNodeStatus, []string{"lns", "-listNodeStatus"}, false, "List nodes status")
-	flag.BoolVar(&listChecks, []string{"lchk", "-listChecks"}, false, "List checks")
-	flag.BoolVar(&listSrvInState, []string{"lsrvis", "-listServiceInState"}, false, "List of services in specific state. Use it with --serviceState")
-	flag.BoolVar(&listAllSrv, []string{"lasrv", "-listAllServices"}, false, "List of all services")
-	flag.StringVar(&srvState, []string{"ss", "-serviceState"}, "critical", "State of the service you wish to deregister. Default: critical")
-	flag.BoolVar(&deregisterSrv, []string{"drsrv", "-deregisterService"}, false, "Deregister service. Use it with --serviceState")
-	flag.BoolVar(&forceLeaveNode, []string{"fl", "-forceLeaveNode"}, false, "Force leave consul node. Use it with --nodeStatusCode")
+	flag.StringVar(&tagvalue, []string{"tv", "-tag-value"}, "", "AWS tag value")
+	flag.IntVar(&nsc, []string{"nsc", "-node-status-code"}, 4, "Consul node status code. Default: 4")
+	flag.BoolVar(&listTargetHosts, []string{"lth", "-list-target-hosts"}, false, "List target hosts")
+	flag.BoolVar(&listNodeStatus, []string{"lns", "-list-node-status"}, false, "List nodes status")
+	flag.BoolVar(&listChecks, []string{"lchk", "-list-checks"}, false, "List checks")
+	flag.BoolVar(&listSrvInState, []string{"lsrvis", "-list-service-in-state"}, false, "List of services in specific state. Use it with --serviceState")
+	flag.BoolVar(&listAllSrv, []string{"lasrv", "-list-all-services"}, false, "List of all services")
+	flag.StringVar(&srvState, []string{"ss", "-service-state"}, "critical", "State of the service you wish to deregister. Default: critical")
+	flag.BoolVar(&deregisterSrv, []string{"drsrv", "-deregister-service"}, false, "Deregister service. Use it with --serviceState")
+	flag.BoolVar(&forceLeaveNode, []string{"fl", "-force-leave-node"}, false, "Force leave consul node. Use it with --nodeStatusCode")
 	flag.BoolVar(&dryRun, []string{"d", "-dryrun"}, false, "Dryrun")
 	flag.Parse()
 
@@ -209,7 +209,7 @@ func main() {
 		wg.Add(len(hosts))
 		for _, ip := range hosts {
 			go func(ip string) {
-				listNodeStaus(connection(ip, "8500"))
+				listNodeStat(connection(ip, "8500"))
 				wg.Done()
 			}(ip)
 		}
